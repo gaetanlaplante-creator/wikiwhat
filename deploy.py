@@ -1,94 +1,110 @@
 import os
+import shutil
 import subprocess
 import sys
-import shutil
 
-# ------------------------------
-# Configuration utilisateur
-# ------------------------------
-PROJECT_DIR = r"C:\Users\gaeta\Documents\wikiwhat"
+# ===========================
+# CONFIGURATION
+# ===========================
+PROJECT_DIR = os.path.abspath(os.path.dirname(__file__))
+FLUTTER_PATH = r"C:\Users\gaeta\flutter\bin\flutter.bat"  # chemin correct vers flutter.bat
 GITHUB_USER = "gaetanlaplante-creator"
 REPO_NAME = "wikiwhat"
-BRANCH_WEB = "gh-pages"
-MAIN_DART = os.path.join(PROJECT_DIR, "lib", "main.dart")
-TOKEN = os.environ.get("GITHUB_TOKEN")
+GITHUB_URL = f"https://{os.environ.get('GITHUB_TOKEN', '')}@github.com/{GITHUB_USER}/{REPO_NAME}.git"
 
-# ------------------------------
-# Fonctions utilitaires
-# ------------------------------
-def safe_run(cmd, cwd=None):
-    """Exécute une commande et reste ouvert si erreur"""
+# ===========================
+# FONCTIONS UTILITAIRES
+# ===========================
+def pause(msg="Appuyez sur Entrée pour continuer..."):
+    input(msg)
+
+def safe_run(cmd, cwd=PROJECT_DIR):
     try:
+        print(f"> {cmd}")
         subprocess.check_call(cmd, shell=True, cwd=cwd)
     except subprocess.CalledProcessError as e:
-        print(f"\n❌ Commande échouée: {cmd}\nErreur: {e}")
-        input("Appuyez sur Entrée pour fermer...")
+        print(f"❌ Erreur lors de l'exécution : {e}")
+        pause()
+        sys.exit(1)
+    except FileNotFoundError as e:
+        print(f"❌ Fichier introuvable : {e}")
+        pause()
         sys.exit(1)
 
-def ensure_dir(path):
-    """Crée un dossier s'il n'existe pas"""
+def check_folder(path):
     if not os.path.exists(path):
         os.makedirs(path)
         print(f"Dossier créé : {path}")
     else:
         print(f"Dossier existant conservé : {path}")
 
-def ensure_file(path):
-    """Crée un fichier vide s'il n'existe pas"""
+def check_file(path):
     if not os.path.exists(path):
-        with open(path, "w", encoding="utf-8") as f:
-            f.write("")
-        print(f"Fichier créé : {path}")
+        print(f"⚠️ Fichier manquant : {path}")
+        pause()
     else:
         print(f"Fichier existant conservé : {path}")
 
-# ------------------------------
-# Préparation des dossiers
-# ------------------------------
-dirs_to_create = [
+# ===========================
+# VERIFICATION DE L'ENVIRONNEMENT
+# ===========================
+print("📂 Vérification des dossiers et fichiers...")
+
+folders = [
     os.path.join(PROJECT_DIR, "lib"),
     os.path.join(PROJECT_DIR, "assets", "images"),
     os.path.join(PROJECT_DIR, "assets", "audio"),
     os.path.join(PROJECT_DIR, "web")
 ]
 
-for d in dirs_to_create:
-    ensure_dir(d)
+files = [
+    os.path.join(PROJECT_DIR, "lib", "main.dart"),
+    os.path.join(PROJECT_DIR, "web", "index.html")
+]
 
-ensure_file(MAIN_DART)
-ensure_file(os.path.join(PROJECT_DIR, "web", "index.html"))
+for f in folders:
+    check_folder(f)
+for f in files:
+    check_file(f)
 
-# ------------------------------
-# Build Flutter Web
-# ------------------------------
+# ===========================
+# BUILD FLUTTER WEB
+# ===========================
 print("\n✅ Build Flutter Web en cours...")
-safe_run(f"flutter build web --release", cwd=PROJECT_DIR)
-print("✅ Build terminé avec succès !")
-
-# ------------------------------
-# Git operations
-# ------------------------------
-os.chdir(PROJECT_DIR)
-
-# Vérifier que TOKEN est défini
-if not TOKEN:
-    print("❌ Erreur : GITHUB_TOKEN non défini dans les variables d'environnement.")
-    input("Appuyez sur Entrée pour fermer...")
+if not os.path.isfile(FLUTTER_PATH):
+    print(f"❌ Flutter non trouvé : {FLUTTER_PATH}")
+    pause()
     sys.exit(1)
 
-# Initialiser git si besoin
-if not os.path.exists(os.path.join(PROJECT_DIR, ".git")):
-    safe_run("git init", cwd=PROJECT_DIR)
+safe_run(f'"{FLUTTER_PATH}" build web')
 
-# Ajouter remote si nécessaire
-remote_url = f"https://{TOKEN}@github.com/{GITHUB_USER}/{REPO_NAME}.git"
-safe_run(f"git remote remove origin || echo 'remote not found'", cwd=PROJECT_DIR)
-safe_run(f"git remote add origin {remote_url}", cwd=PROJECT_DIR)
+print("✅ Build terminé avec succès !")
 
-# Commit et push
-safe_run("git add .", cwd=PROJECT_DIR)
+# ===========================
+# DEPLOIEMENT GITHUB
+# ===========================
+print("\n📤 Déploiement automatique sur GitHub Pages...")
+
+# Vérifier le token
+if "GITHUB_TOKEN" not in os.environ or not os.environ["GITHUB_TOKEN"]:
+    print("❌ GITHUB_TOKEN non défini. Définissez-le dans les variables système.")
+    pause()
+    sys.exit(1)
+
+# Copier les fichiers build/web vers root temporaire
+WEB_BUILD = os.path.join(PROJECT_DIR, "build", "web")
+TMP_DEPLOY = os.path.join(PROJECT_DIR, "tmp_deploy")
+if os.path.exists(TMP_DEPLOY):
+    shutil.rmtree(TMP_DEPLOY)
+shutil.copytree(WEB_BUILD, TMP_DEPLOY)
+
+# Git commands
+safe_run("git add .")
 safe_run('git commit -m "Déploiement automatique"', cwd=PROJECT_DIR)
-safe_run(f"git push origin main --force", cwd=PROJECT_DIR)
+safe_run(f"git push {GITHUB_URL} main", cwd=PROJECT_DIR)
 
-print("\n✅ Déploiement terminé avec succès !")
-input("Appuyez sur Entrée pour fermer...")
+# Nettoyage temporaire
+shutil.rmtree(TMP_DEPLOY, ignore_errors=True)
+
+print("✅ Déploiement terminé avec succès !")
+pause()
