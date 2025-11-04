@@ -1,81 +1,94 @@
 import os
 import subprocess
 import sys
+import shutil
 
-# -------------------------------------------------------------------
-# CONFIGURATION
-# -------------------------------------------------------------------
-# Nom du dépôt et branche
+# ------------------------------
+# Configuration utilisateur
+# ------------------------------
+PROJECT_DIR = r"C:\Users\gaeta\Documents\wikiwhat"
+GITHUB_USER = "gaetanlaplante-creator"
 REPO_NAME = "wikiwhat"
-BRANCH = "main"
-USERNAME = "gaeta-laplante"  # Ton compte GitHub
-# Chemin complet vers flutter.bat (Windows)
-FLUTTER_PATH = r"C:\Users\gaeta\Documents\flutter\bin\flutter.bat"
+BRANCH_WEB = "gh-pages"
+MAIN_DART = os.path.join(PROJECT_DIR, "lib", "main.dart")
+TOKEN = os.environ.get("GITHUB_TOKEN")
 
-# Dossiers à créer
-folders = [
-    "lib",
-    "assets/images",
-    "assets/audio",
-    "web"
-]
+# ------------------------------
+# Fonctions utilitaires
+# ------------------------------
+def safe_run(cmd, cwd=None):
+    """Exécute une commande et reste ouvert si erreur"""
+    try:
+        subprocess.check_call(cmd, shell=True, cwd=cwd)
+    except subprocess.CalledProcessError as e:
+        print(f"\n❌ Commande échouée: {cmd}\nErreur: {e}")
+        input("Appuyez sur Entrée pour fermer...")
+        sys.exit(1)
 
-# Fichiers à préserver
-files_to_keep = [
-    "lib/main.dart",
-    "web/index.html"
-]
-
-# Vérification token GitHub
-GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
-if not GITHUB_TOKEN:
-    print("❌ Erreur : la variable d'environnement GITHUB_TOKEN n'est pas définie.")
-    sys.exit(1)
-
-REPO_URL = f"https://{GITHUB_TOKEN}@github.com/{USERNAME}/{REPO_NAME}.git"
-
-# -------------------------------------------------------------------
-# 1️⃣ Création des dossiers
-# -------------------------------------------------------------------
-for folder in folders:
-    os.makedirs(folder, exist_ok=True)
-    print(f"Dossier créé ou existant : {folder}")
-
-# -------------------------------------------------------------------
-# 2️⃣ Vérification des fichiers existants
-# -------------------------------------------------------------------
-for file_path in files_to_keep:
-    if os.path.exists(file_path):
-        print(f"Fichier existant conservé : {file_path}")
+def ensure_dir(path):
+    """Crée un dossier s'il n'existe pas"""
+    if not os.path.exists(path):
+        os.makedirs(path)
+        print(f"Dossier créé : {path}")
     else:
-        with open(file_path, "w", encoding="utf-8") as f:
-            f.write("// fichier initial\n")
-        print(f"Fichier créé : {file_path}")
+        print(f"Dossier existant conservé : {path}")
 
-# -------------------------------------------------------------------
-# 3️⃣ Build Flutter Web
-# -------------------------------------------------------------------
+def ensure_file(path):
+    """Crée un fichier vide s'il n'existe pas"""
+    if not os.path.exists(path):
+        with open(path, "w", encoding="utf-8") as f:
+            f.write("")
+        print(f"Fichier créé : {path}")
+    else:
+        print(f"Fichier existant conservé : {path}")
+
+# ------------------------------
+# Préparation des dossiers
+# ------------------------------
+dirs_to_create = [
+    os.path.join(PROJECT_DIR, "lib"),
+    os.path.join(PROJECT_DIR, "assets", "images"),
+    os.path.join(PROJECT_DIR, "assets", "audio"),
+    os.path.join(PROJECT_DIR, "web")
+]
+
+for d in dirs_to_create:
+    ensure_dir(d)
+
+ensure_file(MAIN_DART)
+ensure_file(os.path.join(PROJECT_DIR, "web", "index.html"))
+
+# ------------------------------
+# Build Flutter Web
+# ------------------------------
 print("\n✅ Build Flutter Web en cours...")
-try:
-    subprocess.run([FLUTTER_PATH, "build", "web"], check=True)
-    print("✅ Build terminé avec succès !")
-except subprocess.CalledProcessError as e:
-    print(f"❌ Build Flutter Web échoué : {e}")
+safe_run(f"flutter build web --release", cwd=PROJECT_DIR)
+print("✅ Build terminé avec succès !")
+
+# ------------------------------
+# Git operations
+# ------------------------------
+os.chdir(PROJECT_DIR)
+
+# Vérifier que TOKEN est défini
+if not TOKEN:
+    print("❌ Erreur : GITHUB_TOKEN non défini dans les variables d'environnement.")
+    input("Appuyez sur Entrée pour fermer...")
     sys.exit(1)
 
-# -------------------------------------------------------------------
-# 4️⃣ Git add, commit et push automatique
-# -------------------------------------------------------------------
-try:
-    subprocess.run(["git", "add", "."], check=True)
-    subprocess.run(["git", "commit", "-m", "Déploiement automatique"], check=True)
-    subprocess.run(["git", "push", REPO_URL, BRANCH], check=True)
-    print("\n✅ Déploiement GitHub terminé avec succès !")
-except subprocess.CalledProcessError as e:
-    print(f"❌ Git operation échouée : {e}")
-    sys.exit(1)
+# Initialiser git si besoin
+if not os.path.exists(os.path.join(PROJECT_DIR, ".git")):
+    safe_run("git init", cwd=PROJECT_DIR)
 
-# -------------------------------------------------------------------
-# 5️⃣ Fin
-# -------------------------------------------------------------------
-print("\n🎉 Script terminé. Vous pouvez ouvrir votre dépôt GitHub pour vérifier le déploiement.")
+# Ajouter remote si nécessaire
+remote_url = f"https://{TOKEN}@github.com/{GITHUB_USER}/{REPO_NAME}.git"
+safe_run(f"git remote remove origin || echo 'remote not found'", cwd=PROJECT_DIR)
+safe_run(f"git remote add origin {remote_url}", cwd=PROJECT_DIR)
+
+# Commit et push
+safe_run("git add .", cwd=PROJECT_DIR)
+safe_run('git commit -m "Déploiement automatique"', cwd=PROJECT_DIR)
+safe_run(f"git push origin main --force", cwd=PROJECT_DIR)
+
+print("\n✅ Déploiement terminé avec succès !")
+input("Appuyez sur Entrée pour fermer...")
