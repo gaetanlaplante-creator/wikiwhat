@@ -1,110 +1,81 @@
 import os
-import shutil
 import subprocess
-import sys
+import re
+import shutil
 
-# ===========================
-# CONFIGURATION
-# ===========================
-PROJECT_DIR = os.path.abspath(os.path.dirname(__file__))
-FLUTTER_PATH = r"C:\Users\gaeta\flutter\bin\flutter.bat"  # chemin correct vers flutter.bat
+# ==============================
+# ⚙️ CONFIGURATION
+# ==============================
+PROJECT_PATH = r"C:\Users\gaeta\Documents\wikiwhat"
+FLUTTER_PATH = r"C:\Users\gaeta\flutter\bin\flutter.bat"
 GITHUB_USER = "gaetanlaplante-creator"
 REPO_NAME = "wikiwhat"
-GITHUB_URL = f"https://{os.environ.get('GITHUB_TOKEN', '')}@github.com/{GITHUB_USER}/{REPO_NAME}.git"
+BASE_HREF = "/wikiwhat/"
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 
-# ===========================
-# FONCTIONS UTILITAIRES
-# ===========================
-def pause(msg="Appuyez sur Entrée pour continuer..."):
-    input(msg)
+if not GITHUB_TOKEN:
+    print("❌ GITHUB_TOKEN non défini.")
+    input("Appuie sur Entrée pour quitter…")
+    exit(1)
 
-def safe_run(cmd, cwd=PROJECT_DIR):
-    try:
-        print(f"> {cmd}")
-        subprocess.check_call(cmd, shell=True, cwd=cwd)
-    except subprocess.CalledProcessError as e:
-        print(f"❌ Erreur lors de l'exécution : {e}")
-        pause()
-        sys.exit(1)
-    except FileNotFoundError as e:
-        print(f"❌ Fichier introuvable : {e}")
-        pause()
-        sys.exit(1)
+GITHUB_URL = f"https://{GITHUB_TOKEN}@github.com/{GITHUB_USER}/{REPO_NAME}.git"
 
-def check_folder(path):
-    if not os.path.exists(path):
-        os.makedirs(path)
-        print(f"Dossier créé : {path}")
+os.chdir(PROJECT_PATH)
+
+# ==============================
+# 🛠️ BUILD FLUTTER WEB
+# ==============================
+print("🛠️ Compilation du projet Flutter Web…")
+subprocess.run([FLUTTER_PATH, "build", "web", "--release"], check=True)
+
+# ==============================
+# 🧹 POST-TRAITEMENT
+# ==============================
+index_path = os.path.join(PROJECT_PATH, "build", "web", "index.html")
+sw_path = os.path.join(PROJECT_PATH, "build", "web", "flutter_service_worker.js")
+
+# Correction du <base href>
+with open(index_path, "r", encoding="utf-8") as f:
+    content = f.read()
+
+if '<base href="' in content:
+    content = re.sub(r'<base href="[^"]*"', f'<base href="{BASE_HREF}"', content)
+else:
+    content = content.replace("<head>", f"<head>\n  <base href=\"{BASE_HREF}\">")
+
+with open(index_path, "w", encoding="utf-8") as f:
+    f.write(content)
+
+print(f"🔧 Base href corrigé : {BASE_HREF}")
+
+# Suppression du service worker pour éviter le cache
+if os.path.exists(sw_path):
+    os.remove(sw_path)
+    print("🧹 Service worker supprimé :", sw_path)
+
+# ==============================
+# 📂 COPIE DU BUILD À LA RACINE
+# ==============================
+WEB_BUILD_PATH = os.path.join(PROJECT_PATH, "build", "web")
+for item in os.listdir(WEB_BUILD_PATH):
+    s = os.path.join(WEB_BUILD_PATH, item)
+    d = os.path.join(PROJECT_PATH, item)
+    if os.path.isdir(s):
+        if os.path.exists(d):
+            shutil.rmtree(d)
+        shutil.copytree(s, d)
     else:
-        print(f"Dossier existant conservé : {path}")
+        shutil.copy2(s, d)
+print("📂 Contenu de build/web copié à la racine")
 
-def check_file(path):
-    if not os.path.exists(path):
-        print(f"⚠️ Fichier manquant : {path}")
-        pause()
-    else:
-        print(f"Fichier existant conservé : {path}")
+# ==============================
+# 📤 DEPLOIEMENT AUTOMATIQUE
+# ==============================
+print("\n📤 Déploiement automatique sur GitHub Pages…")
+subprocess.run(["git", "add", "."], check=True)
+subprocess.run(["git", "commit", "-m", "Déploiement automatisé : base href corrigé et copie à la racine"], check=False)
+subprocess.run(["git", "push", GITHUB_URL, "main"], check=True)
 
-# ===========================
-# VERIFICATION DE L'ENVIRONNEMENT
-# ===========================
-print("📂 Vérification des dossiers et fichiers...")
-
-folders = [
-    os.path.join(PROJECT_DIR, "lib"),
-    os.path.join(PROJECT_DIR, "assets", "images"),
-    os.path.join(PROJECT_DIR, "assets", "audio"),
-    os.path.join(PROJECT_DIR, "web")
-]
-
-files = [
-    os.path.join(PROJECT_DIR, "lib", "main.dart"),
-    os.path.join(PROJECT_DIR, "web", "index.html")
-]
-
-for f in folders:
-    check_folder(f)
-for f in files:
-    check_file(f)
-
-# ===========================
-# BUILD FLUTTER WEB
-# ===========================
-print("\n✅ Build Flutter Web en cours...")
-if not os.path.isfile(FLUTTER_PATH):
-    print(f"❌ Flutter non trouvé : {FLUTTER_PATH}")
-    pause()
-    sys.exit(1)
-
-safe_run(f'"{FLUTTER_PATH}" build web')
-
-print("✅ Build terminé avec succès !")
-
-# ===========================
-# DEPLOIEMENT GITHUB
-# ===========================
-print("\n📤 Déploiement automatique sur GitHub Pages...")
-
-# Vérifier le token
-if "GITHUB_TOKEN" not in os.environ or not os.environ["GITHUB_TOKEN"]:
-    print("❌ GITHUB_TOKEN non défini. Définissez-le dans les variables système.")
-    pause()
-    sys.exit(1)
-
-# Copier les fichiers build/web vers root temporaire
-WEB_BUILD = os.path.join(PROJECT_DIR, "build", "web")
-TMP_DEPLOY = os.path.join(PROJECT_DIR, "tmp_deploy")
-if os.path.exists(TMP_DEPLOY):
-    shutil.rmtree(TMP_DEPLOY)
-shutil.copytree(WEB_BUILD, TMP_DEPLOY)
-
-# Git commands
-safe_run("git add .")
-safe_run('git commit -m "Déploiement automatique"', cwd=PROJECT_DIR)
-safe_run(f"git push {GITHUB_URL} main", cwd=PROJECT_DIR)
-
-# Nettoyage temporaire
-shutil.rmtree(TMP_DEPLOY, ignore_errors=True)
-
-print("✅ Déploiement terminé avec succès !")
-pause()
+print("\n✅ Déploiement terminé !")
+print(f"➡️ Vérifie ton site : https://{GITHUB_USER}.github.io/{REPO_NAME}")
+input("\nAppuie sur Entrée pour quitter…")
